@@ -1,44 +1,29 @@
-# LC-Boombox
-Allows players to add to or replace boombox tracks in Lethal Company.
+# LC-Boombox / Custom Boombox Music (Now with Opus support!)
+Find it on [Thunderstore](https://thunderstore.io/c/lethal-company/p/Spantle/Custom_Boombox_Music_Opus/)
 
-## Installing Songs when Installed via r2modman
+A fork of [this mod by Steven](https://thunderstore.io/c/lethal-company/p/Steven/Custom_Boombox_Music/) that adds support for [Opus](https://opus-codec.org/) (.opus) files.
 
-When mods are installed with r2modman, BepInEx gets configured to place mod files in a different location
+It also adds native support for loading music files from Mods/Plugins and the Config folder so [any fixer mods like this one](https://thunderstore.io/c/lethal-company/p/CodeEnder/Custom_Boombox_Fix/) are no longer needed.
 
-You can find the correct folder by going to `Settings`, clicking `Browse profile folder`, then navigating to `BepInEx\Custom Songs\Boombox Music`.
+## What are Opus files?
+Opus is a relatively new audio format (think MP3, WAV, OGG, etc.) that is designed to be very efficient and high quality. Many popular apps already quietly use it (like Discord), but Unity doesn't support it out of the box. This mod manually adds support for it when loading custom Boombox music.
 
-![image](https://github.com/DeadlyKitten/LC-Boombox/assets/9684760/ef378cdc-c2af-4ba4-82ef-d2aa29a9af31)
+Some benefits of using Opus files (and this mod) are:
+- Significantly better quality at smaller file sizes (even against MP3s)
+- Uses significantly less RAM/memory
+- Music no longer loops/ends early
+- "Fix" mods that work by copying files (doubling storage usage) are no longer needed
+- IDK I kind of just made this for my own music/modpack lol
 
-## Manual Installation
-Place the [latest release](https://github.com/DeadlyKitten/LC-Boombox/releases/latest) into the `BepInEx/plugins` folder. Run the game once to generate content folders.
+## Installing Songs
+This mod supports loading songs from the following locations (double check the config)
+- `Custom Songs/Boombox Music`
+- `plugins/*/Custom Songs`
+- `config/Custom Songs`
 
-Place boombox tracks into `BepInEx/Custom Songs/Boombox Music`.
+It also adds an option to delete songs from `Custom Songs/Boombox Music`, just in case you used a fixer mod before (off by default).
 
------
- 
-### Valid file types are as follows:
-- WAV
-- OGG
-- MP3
-
-
-## 🔧 Developing
-
-Clone the project, then create a file in the root of the project directory named:
-
-`CustomBoomboxTracks.csproj.user`
-
-Here you need to set the `GameDir` property to match your install directory.
-
-Example:
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<Project>
-  <PropertyGroup>
-    <!-- Set "YOUR OWN" game folder here to resolve most of the dependency paths! -->
-    <GameDir>C:\Program Files (x86)\Steam\steamapps\common\Lethal Company</GameDir>
-  </PropertyGroup>
-</Project>
-```
-
-Now when you build the mod, it should resolve your references automatically, and the build event will copy the plugin into your `BepInEx\plugins` folder!
+## Credits
+- This mod is mostly based off of [the Custom Boombox Music by Steven](https://thunderstore.io/c/lethal-company/p/Steven/Custom_Boombox_Music/)
+- [Opus](https://opus-codec.org/) is a fantastic free and open source audio codec that is used in this mod (and should be used by many others)
+- [Concentus](https://github.com/lostromb/concentus) and [Concentus.OggFile](https://github.com/lostromb/concentus.oggfile) for their C# Opus decoder port, and also mainly for their Ogg file decoder.

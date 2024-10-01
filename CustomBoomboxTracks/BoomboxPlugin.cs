@@ -9,8 +9,8 @@ namespace CustomBoomboxTracks
     [BepInPlugin(GUID, NAME, VERSION)]
     public class BoomboxPlugin : BaseUnityPlugin
     {
-        private const string GUID = "com.steven.lethalcompany.boomboxmusic";
-        private const string NAME = "Custom Boombox Music";
+        private const string GUID = "boomboxmusicopus";
+        private const string NAME = "Custom Boombox Music Opus";
         private const string VERSION = "1.4.0";
 
         private static BoomboxPlugin Instance;
@@ -21,8 +21,8 @@ namespace CustomBoomboxTracks
 
             LogInfo("Loading...");
 
-            AudioManager.GenerateFolders();
             Configuration.Config.Init();
+            AudioManager.GenerateFolders();
 
             var harmony = new Harmony(GUID);
             harmony.PatchAll();
