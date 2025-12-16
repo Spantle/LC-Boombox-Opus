@@ -11,7 +11,7 @@ namespace CustomBoomboxTracks
     {
         private const string GUID = "boomboxmusicopus";
         private const string NAME = "Custom Boombox Music Opus";
-        private const string VERSION = "1.4.0";
+        private const string VERSION = "2.0.0";
 
         private static BoomboxPlugin Instance;
 

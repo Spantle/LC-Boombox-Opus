@@ -1,14 +1,17 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using BepInEx;
+﻿using BepInEx;
 using Concentus;
 using Concentus.Oggfile;
 using CustomBoomboxTracks.Configuration;
 using CustomBoomboxTracks.Utilities;
 using HarmonyLib;
+using System;
+using System.Collections;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -19,15 +22,16 @@ namespace CustomBoomboxTracks.Managers
         public static event Action OnAllSongsLoaded;
         public static bool FinishedLoading => finishedLoading;
 
-        static string[] allSongPaths;
+        static List<string> allSongPaths;
         static List<AudioClip> clips = new List<AudioClip>();
         static bool firstRun = true;
         static bool finishedLoading = false;
+        static bool isOnDemandLoading = false;
 
         static readonly string customSongsFolder = Path.Combine(Paths.BepInExRootPath, "Custom Songs", "Boombox Music");
         static readonly string configFolder = Path.Combine(Paths.ConfigPath, "Custom Songs");
 
-        public static bool HasNoSongs => allSongPaths.Length == 0;
+        public static bool HasNoSongs => allSongPaths.Count == 0;
 
         public static void GenerateFolders()
         {
@@ -57,9 +61,10 @@ namespace CustomBoomboxTracks.Managers
             if (firstRun)
             {
                 firstRun = false;
-                allSongPaths = SearchForSongs().ToArray();
+                allSongPaths = SearchForSongs().ToList();
+                allSongPaths.Sort((first, second) => first.CompareTo(second));
 
-                if (allSongPaths.Length == 0)
+                if (allSongPaths.Count == 0)
                 {
                     BoomboxPlugin.LogWarning("No songs found!");
                     return;
@@ -67,14 +72,17 @@ namespace CustomBoomboxTracks.Managers
 
                 BoomboxPlugin.LogInfo("Preparing to load AudioClips...");
 
-                var coroutines = new List<Coroutine>();
-                foreach (var track in allSongPaths)
+                if (!Config.EnableOnDemandLoading)
                 {
-                    var coroutine = SharedCoroutineStarter.StartCoroutine(LoadAudioClip(track));
-                    coroutines.Add(coroutine);
-                }
+                    var coroutines = new List<Coroutine>();
+                    foreach (var track in allSongPaths)
+                    {
+                        var coroutine = SharedCoroutineStarter.StartCoroutine(LoadAudioClip(track));
+                        coroutines.Add(coroutine);
+                    }
 
-                SharedCoroutineStarter.StartCoroutine(WaitForAllClips(coroutines));
+                    SharedCoroutineStarter.StartCoroutine(WaitForAllClips(coroutines));
+                }
             }
         }
 
@@ -135,7 +143,8 @@ namespace CustomBoomboxTracks.Managers
                 bool isOpus = GetIsOpus(filePath);
                 if (isOpus)
                 {
-                    yield return LoadOpus(filePath);
+                    List<float> fileOut = DecodeOpus(filePath);
+                    FinalizeOpus(filePath, fileOut);
                 }
                 else
                 {
@@ -146,31 +155,51 @@ namespace CustomBoomboxTracks.Managers
             else yield return LoadNormally(filePath, audioType);
         }
 
-        private static IEnumerator LoadOpus(string filePath)
+        private static List<float> DecodeOpus(string filePath)
         {
             BoomboxPlugin.LogInfo($"It's an Opus file!");
 
-            List<float> fileOut = new List<float>();
-            using (FileStream fileIn = new FileStream(filePath, FileMode.Open))
+            try
             {
-                IOpusDecoder decoder = OpusCodecFactory.CreateDecoder(Config.OpusDecodeSampleRate, 1, Console.Out);
-                OpusOggReadStream oggIn = new OpusOggReadStream(decoder, fileIn);
-                while (oggIn.HasNextPacket)
+                List<float> fileOut = new List<float>();
+                using (FileStream fileIn = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
                 {
-                    short[] packet = oggIn.DecodeNextPacket();
-                    if (packet != null)
+                    IOpusDecoder decoder = OpusCodecFactory.CreateDecoder(Config.OpusDecodeSampleRate, 1, Console.Out);
+                    OpusOggReadStream oggIn = new OpusOggReadStream(decoder, fileIn);
+                    while (oggIn.HasNextPacket)
                     {
-                        float[] binary = new float[packet.Length];
-                        for (int i = 0; i < packet.Length; i++)
+                        short[] packet = oggIn.DecodeNextPacket();
+                        if (packet != null)
                         {
-                            binary[i] = packet[i] / 32768.0f;
+                            float[] binary = new float[packet.Length];
+                            for (int i = 0; i < packet.Length; i++)
+                            {
+                                binary[i] = packet[i] / 32768.0f;
+                            }
+                            fileOut.AddRange(binary);
                         }
-                        fileOut.AddRange(binary);
                     }
+
+                    decoder.Dispose();
+                    fileIn.Dispose();
                 }
 
-                decoder.Dispose();
-                fileIn.Dispose();
+                return fileOut;
+            }
+            catch (Exception e)
+            {
+                BoomboxPlugin.LogError(e);
+                return null;
+            }
+
+        }
+
+        private static void FinalizeOpus(string filePath, List<float> fileOut)
+        {
+            if (fileOut == null)
+            {
+                BoomboxPlugin.LogWarning($"Failed to load Opus file {filePath}");
+                return;
             }
 
             AudioClip clip = AudioClip.Create(Path.GetFileName(filePath), fileOut.Count, 1, Config.OpusDecodeSampleRate, false);
@@ -180,8 +209,6 @@ namespace CustomBoomboxTracks.Managers
             fileOut.Clear();
 
             BoomboxPlugin.LogInfo($"Loaded Opus file {filePath}");
-
-            yield break;
         }
 
         private static IEnumerator LoadNormally(string filePath, AudioType audioType)
@@ -227,7 +254,7 @@ namespace CustomBoomboxTracks.Managers
                 yield return coroutine;
             }
 
-            clips.Sort((first, second) => first.name.CompareTo(second.name));
+            BoomboxPlugin.LogInfo("finished loading all tracks");
 
             finishedLoading = true;
             OnAllSongsLoaded?.Invoke();
@@ -238,12 +265,81 @@ namespace CustomBoomboxTracks.Managers
         {
             BoomboxPlugin.LogInfo($"Applying clips!");
 
-            if (Config.UseDefaultSongs)
+            if (!Config.EnableOnDemandLoading && Config.UseDefaultSongs)
                 __instance.musicAudios = __instance.musicAudios.Concat(clips).ToArray();
             else
                 __instance.musicAudios = clips.ToArray();
 
             BoomboxPlugin.LogInfo($"Total Clip Count: {__instance.musicAudios.Length}");
+        }
+
+        private struct OpusResult
+        {
+            public string songPath;
+            public List<float> data;
+        }
+
+        public static IEnumerator OnDemandLoad(BoomboxItem __instance)
+        {
+            if (clips.Count < Config.LoadedSongsCount)
+            {
+                if (!isOnDemandLoading)
+                {
+                    isOnDemandLoading = true;
+
+                    int clipsToLoad = Config.LoadedSongsCount - clips.Count;
+                    int maxConcurrency = Config.SongLoadingThreadCount == 0 ? (Environment.ProcessorCount / 2) : Config.SongLoadingThreadCount;
+                    int running = 0;
+                    ConcurrentQueue<OpusResult> completed = new ConcurrentQueue<OpusResult>();
+
+                    BoomboxPlugin.LogInfo($"On-Demand Loading {clipsToLoad} songs on {maxConcurrency} threads...");
+
+                    for (int i = 0; i < clipsToLoad; i++)
+                    {
+                        while (running >= maxConcurrency)
+                            yield return null;
+
+                        running++;
+                        string songPath = allSongPaths[__instance.musicRandomizer.Next(0, allSongPaths.Count)];
+                        Task.Run(() =>
+                        {
+                            try
+                            {
+                                List<float> data = DecodeOpus(songPath);
+                                completed.Enqueue(new OpusResult { songPath = songPath, data = data });
+                            }
+                            finally
+                            {
+                                Interlocked.Decrement(ref running);
+                            }
+                        });
+                    }
+
+                    while (running > 0 || !completed.IsEmpty)
+                    {
+                        while (completed.TryDequeue(out var r))
+                            FinalizeOpus(r.songPath, r.data);
+
+                        yield return null;
+                    }
+
+                    finishedLoading = true;
+                    OnAllSongsLoaded?.Invoke();
+                    OnAllSongsLoaded = null;
+                    isOnDemandLoading = false;
+                    ApplyClips(__instance);
+                }
+            }
+        }
+
+        public static IEnumerator RemoveSong(BoomboxItem __instance)
+        {
+            AudioClip nowPlaying = __instance.boomboxAudio.clip;
+            BoomboxPlugin.LogInfo($"Removing song {nowPlaying.name}...");
+            nowPlaying.UnloadAudioData();
+            UnityEngine.Object.Destroy(nowPlaying);
+            clips.Remove(nowPlaying);
+            yield return OnDemandLoad(__instance);
         }
 
         private static AudioType GetAudioType(string path)
